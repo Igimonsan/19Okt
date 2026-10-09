@@ -1,0 +1,671 @@
+/* =========================================
+   LOADING SCREEN — nunggu semua gambar kebuka,
+   ada progress bar
+========================================= */
+(function () {
+    const loadingScreen = document.getElementById('loading-screen');
+    const progressBar = document.getElementById('loading-progress-bar');
+    const progressText = document.getElementById('loading-progress-text');
+
+    if (!loadingScreen) return;
+
+    const images = Array.from(document.images); // semua <img> di halaman
+    const total = images.length;
+    let loaded = 0;
+
+    function updateProgress() {
+        loaded++;
+        const percent = total === 0 ? 100 : Math.round((loaded / total) * 100);
+        if (progressBar) progressBar.style.width = percent + '%';
+        if (progressText) progressText.textContent = percent + '%';
+        if (loaded >= total) finishLoading();
+    }
+
+    function finishLoading() {
+        setTimeout(() => {
+            loadingScreen.classList.add('loading-hidden');
+        }, 300); // jeda dikit biar progress 100% keliatan dulu
+    }
+
+    if (total === 0) {
+        finishLoading();
+    } else {
+        images.forEach((img) => {
+            if (img.complete) {
+                updateProgress();
+            } else {
+                img.addEventListener('load', updateProgress);
+                img.addEventListener('error', updateProgress); // tetep lanjut walau ada gambar gagal
+            }
+        });
+    }
+
+    // Jaga-jaga: kalau koneksi lambat banget, paksa tutup abis 8 detik
+    setTimeout(() => {
+        if (!loadingScreen.classList.contains('loading-hidden')) {
+            if (progressBar) progressBar.style.width = '100%';
+            if (progressText) progressText.textContent = '100%';
+            if (loaded >= total) finishLoading();
+        }
+    }, 8000);
+})();
+
+/* =========================================
+   PIN GATE — Masukin PIN buat buka website
+   Mau ganti PIN-nya? Tinggal ubah nilai di bawah ini!
+========================================= */
+(function () {
+    const CORRECT_PIN = "1910"; // <-- GANTI PIN RAHASIA DI SINI (angka aja, sesuai keypad)
+    const MAX_PIN_LENGTH = 10;
+
+    const gate = document.getElementById('pin-gate');
+    const gateBox = document.getElementById('pin-gate-box');
+    const display = document.getElementById('pin-display');
+    const keypad = document.getElementById('pin-keypad');
+    const clearBtn = document.getElementById('pin-key-clear');
+    const backspaceBtn = document.getElementById('pin-key-backspace');
+    const submitBtn = document.getElementById('pin-submit-btn');
+    const errorMsg = document.getElementById('pin-error-msg');
+    const successPopup = document.getElementById('pin-success-popup');
+
+    if (!gate || !display || !keypad || !submitBtn) return;
+
+    document.body.classList.add('pin-locked');
+
+    let enteredPin = '';
+
+    function renderDisplay() {
+        display.innerHTML = '';
+        for (let i = 0; i < enteredPin.length; i++) {
+            const dot = document.createElement('span');
+            dot.className = 'pin-dot';
+            display.appendChild(dot);
+        }
+    }
+
+    const funnyWrongMessages = [
+        "Yah, salah tuh! 🙈 Coba lagi dong~",
+        "Eits, bukan itu PIN-nya! 😜",
+        "Hmm... kayaknya kamu bukan orang yang tepat nih 👀",
+        "Salah lagi! PIN-nya dijaga ketat soalnya 🔐",
+        "Coba mikir lagi deh, dikit lagi kayaknya~ 🤔",
+        "Nope! Bukan itu, semangat coba lagi ya 💪"
+    ];
+
+    function spawnConfettiBurst() {
+        const emojis = ['🌸', '🎉', '✨', '💗', '🎊'];
+        for (let i = 0; i < 28; i++) {
+            const piece = document.createElement('span');
+            piece.className = 'confetti-piece';
+            piece.textContent = emojis[Math.floor(Math.random() * emojis.length)];
+            const angle = Math.random() * Math.PI * 2;
+            const distance = 120 + Math.random() * 160;
+            piece.style.setProperty('--tx', `${Math.cos(angle) * distance}px`);
+            piece.style.setProperty('--ty', `${Math.sin(angle) * distance}px`);
+            piece.style.setProperty('--rot', `${Math.random() * 360}deg`);
+            piece.style.animationDelay = `${Math.random() * 0.15}s`;
+            document.body.appendChild(piece);
+            setTimeout(() => piece.remove(), 1400);
+        }
+    }
+
+    function showError() {
+        const msg = funnyWrongMessages[Math.floor(Math.random() * funnyWrongMessages.length)];
+        errorMsg.textContent = msg;
+        gateBox.classList.remove('pin-shake');
+        void gateBox.offsetWidth;
+        gateBox.classList.add('pin-shake');
+        enteredPin = '';
+        renderDisplay();
+    }
+
+    function checkPin() {
+        if (enteredPin === CORRECT_PIN) {
+            errorMsg.textContent = '';
+            spawnConfettiBurst();
+            if (window.startBackgroundMusic) window.startBackgroundMusic();
+            successPopup.classList.remove('hidden');
+            successPopup.classList.add('flex');
+
+            setTimeout(() => {
+                gate.classList.add('pin-hidden');
+                document.body.classList.remove('pin-locked');
+            }, 1400);
+
+            setTimeout(() => {
+                successPopup.classList.add('hidden');
+                successPopup.classList.remove('flex');
+                gate.remove();
+            }, 2200);
+        } else {
+            showError();
+        }
+    }
+
+    // Tombol angka 0-9
+    keypad.querySelectorAll('[data-key]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+            if (enteredPin.length >= MAX_PIN_LENGTH) return;
+            enteredPin += btn.dataset.key;
+            renderDisplay();
+        });
+    });
+
+    // Hapus 1 digit terakhir
+    if (backspaceBtn) {
+        backspaceBtn.addEventListener('click', () => {
+            enteredPin = enteredPin.slice(0, -1);
+            renderDisplay();
+        });
+    }
+
+    // Hapus semua digit
+    if (clearBtn) {
+        clearBtn.addEventListener('click', () => {
+            enteredPin = '';
+            renderDisplay();
+        });
+    }
+
+    submitBtn.addEventListener('click', checkPin);
+})();
+
+/* =========================================
+   PUZZLE MINIGAME — klik potongan, lalu klik kotak
+   buat naruhnya, pake gambar img/puzzle.png
+========================================= */
+(function () {
+    const GRID_SIZE = 3; // 3x3
+    const TOTAL = GRID_SIZE * GRID_SIZE;
+    const IMAGE_SRC = 'img/puzzle.jpg'; // <-- GANTI GAMBAR PUZZLE DI SINI
+
+    const WA_PHONE_NUMBER = '601118776117'; // <-- GANTI NOMOR WHATSAPP DI SINI
+    const WA_MESSAGE = 'Makasih yaaa! 🥰🎉'; // <-- GANTI PESANNYA DI SINI
+
+    const openBtn = document.getElementById('open-puzzle-btn');
+    const closeBtn = document.getElementById('close-puzzle-btn');
+    const shuffleBtn = document.getElementById('shuffle-puzzle-btn');
+    const modal = document.getElementById('puzzle-modal');
+    const grid = document.getElementById('puzzle-grid');
+    const tray = document.getElementById('puzzle-tray');
+    const successPopup = document.getElementById('puzzle-success-popup');
+    const closeSuccessBtn = document.getElementById('close-puzzle-success-btn');
+    const referenceBtn = document.getElementById('puzzle-reference-btn');
+    const referenceLightbox = document.getElementById('puzzle-reference-lightbox');
+    const closeReferenceLightboxBtn = document.getElementById('close-reference-lightbox-btn');
+
+    if (!openBtn || !modal || !grid || !tray) return;
+
+    let slots = new Array(TOTAL).fill(null);
+    let trayOrder = [];
+    let selectedPieceId = null;
+    let solved = false;
+
+    function pieceBackgroundStyle(pieceId) {
+        const row = Math.floor(pieceId / GRID_SIZE);
+        const col = pieceId % GRID_SIZE;
+        return {
+            backgroundImage: `url('${IMAGE_SRC}')`,
+            backgroundSize: `${GRID_SIZE * 100}% ${GRID_SIZE * 100}%`,
+            backgroundPosition: `${(col / (GRID_SIZE - 1)) * 100}% ${(row / (GRID_SIZE - 1)) * 100}%`
+        };
+    }
+
+    function shufflePuzzle() {
+        slots = new Array(TOTAL).fill(null);
+        trayOrder = [];
+        for (let i = 0; i < TOTAL; i++) trayOrder.push(i);
+        for (let i = trayOrder.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [trayOrder[i], trayOrder[j]] = [trayOrder[j], trayOrder[i]];
+        }
+        selectedPieceId = null;
+        solved = false;
+        render();
+    }
+
+    function render() {
+        grid.innerHTML = '';
+        for (let i = 0; i < TOTAL; i++) {
+            const slotEl = document.createElement('div');
+            const pieceId = slots[i];
+            slotEl.className = 'puzzle-slot';
+            if (pieceId !== null) {
+                slotEl.classList.add('filled');
+                if (pieceId === i) slotEl.classList.add('correct');
+                const style = pieceBackgroundStyle(pieceId);
+                Object.assign(slotEl.style, style);
+            }
+            slotEl.addEventListener('click', () => handleSlotClick(i));
+            grid.appendChild(slotEl);
+        }
+
+        tray.innerHTML = '';
+        trayOrder.forEach((pieceId) => {
+            if (slots.includes(pieceId)) return;
+            const pieceEl = document.createElement('div');
+            pieceEl.className = 'puzzle-piece puzzle-tray-empty';
+            if (pieceId === selectedPieceId) pieceEl.classList.add('selected');
+            const style = pieceBackgroundStyle(pieceId);
+            Object.assign(pieceEl.style, style);
+            pieceEl.addEventListener('click', () => handlePieceClick(pieceId));
+            tray.appendChild(pieceEl);
+        });
+    }
+
+    function handlePieceClick(pieceId) {
+        if (solved) return;
+        selectedPieceId = (selectedPieceId === pieceId) ? null : pieceId;
+        render();
+    }
+
+    function handleSlotClick(slotIndex) {
+        if (solved) return;
+        const currentPieceId = slots[slotIndex];
+
+        if (selectedPieceId !== null) {
+            slots[slotIndex] = selectedPieceId;
+            selectedPieceId = null;
+            render();
+            checkWin();
+        } else if (currentPieceId !== null) {
+            slots[slotIndex] = null;
+            render();
+        }
+    }
+
+    function checkWin() {
+        const isSolved = slots.every((pieceId, i) => pieceId === i);
+        if (isSolved) {
+            solved = true;
+            setTimeout(() => {
+                successPopup.classList.remove('hidden');
+                successPopup.classList.add('flex');
+            }, 300);
+        }
+    }
+
+    function openPuzzle() {
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+        if (trayOrder.length === 0) shufflePuzzle();
+        if (window.initPuzzleScratchCard) window.initPuzzleScratchCard();
+    }
+
+    function closePuzzle() {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+    }
+
+    openBtn.addEventListener('click', openPuzzle);
+    closeBtn.addEventListener('click', closePuzzle);
+    shuffleBtn.addEventListener('click', shufflePuzzle);
+    closeSuccessBtn.addEventListener('click', () => {
+        const waUrl = `https://wa.me/${WA_PHONE_NUMBER}?text=${encodeURIComponent(WA_MESSAGE)}`;
+        window.open(waUrl, '_blank');
+
+        successPopup.classList.add('hidden');
+        successPopup.classList.remove('flex');
+    });
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closePuzzle();
+    });
+
+    if (referenceBtn && referenceLightbox && closeReferenceLightboxBtn) {
+        referenceBtn.addEventListener('click', () => {
+            referenceLightbox.classList.remove('hidden');
+            referenceLightbox.classList.add('flex');
+        });
+        closeReferenceLightboxBtn.addEventListener('click', () => {
+            referenceLightbox.classList.add('hidden');
+            referenceLightbox.classList.remove('flex');
+        });
+        referenceLightbox.addEventListener('click', (e) => {
+            if (e.target === referenceLightbox) {
+                referenceLightbox.classList.add('hidden');
+                referenceLightbox.classList.remove('flex');
+            }
+        });
+    }
+})();
+
+/* =========================================
+   KALENDER TANGGAL SPESIAL
+   Semua bisa dicustom di 5 baris paling atas
+========================================= */
+(function () {
+    const CALENDAR_YEAR = 2026;            // <-- GANTI TAHUN
+    const CALENDAR_MONTH = 10;              // <-- GANTI BULAN (1=Jan ... 12=Des)
+    const CALENDAR_MONTH_NAME = 'Oktober';  // <-- GANTI NAMA BULAN buat ditampilin
+    const CALENDAR_DAYS_IN_MONTH = 31;      // <-- GANTI JUMLAH HARI BULAN ITU (28/29/30/31)
+    const CALENDAR_BIRTHDAY_DATE = 19;      // <-- GANTI TANGGAL ULANG TAHUNNYA
+
+    const label = document.getElementById('calendar-month-label');
+    const grid = document.getElementById('calendar-grid');
+    if (!grid) return;
+
+    if (label) label.textContent = `${CALENDAR_MONTH_NAME} ${CALENDAR_YEAR}`;
+
+    const firstDayWeekday = new Date(CALENDAR_YEAR, CALENDAR_MONTH - 1, 1).getDay();
+
+    for (let i = 0; i < firstDayWeekday; i++) {
+        const empty = document.createElement('div');
+        empty.className = 'calendar-day empty';
+        grid.appendChild(empty);
+    }
+
+    for (let day = 1; day <= CALENDAR_DAYS_IN_MONTH; day++) {
+        const cell = document.createElement('div');
+        cell.className = 'calendar-day';
+        cell.textContent = day;
+        if (day === CALENDAR_BIRTHDAY_DATE) {
+            cell.classList.add('is-birthday');
+        }
+        grid.appendChild(cell);
+    }
+})();
+
+/* =========================================
+   SCRATCH CARD — gosok buat liat contoh puzzle
+========================================= */
+(function () {
+    let scratchInitialized = false;
+
+    function initScratchCard() {
+        if (scratchInitialized) return;
+        scratchInitialized = true;
+
+        const canvas = document.getElementById('puzzle-scratch-canvas');
+        const img = document.getElementById('puzzle-reference-img');
+        const hint = document.getElementById('puzzle-scratch-hint');
+        if (!canvas || !img) return;
+
+        function setup() {
+            const rect = img.getBoundingClientRect();
+            canvas.width = rect.width;
+            canvas.height = rect.height;
+            const ctx = canvas.getContext('2d');
+
+            const grad = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+            grad.addColorStop(0, '#FFB7C5');
+            grad.addColorStop(1, '#ff8fa3');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#ffffff';
+            ctx.font = `${Math.max(10, canvas.width * 0.09)}px sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('✨ Gosok sini ✨', canvas.width / 2, canvas.height / 2);
+
+            let isDrawing = false;
+            let strokeCount = 0;
+
+            function getPos(e) {
+                const r = canvas.getBoundingClientRect();
+                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+                return { x: clientX - r.left, y: clientY - r.top };
+            }
+
+            function scratchAt(x, y) {
+                ctx.globalCompositeOperation = 'destination-out';
+                ctx.beginPath();
+                ctx.arc(x, y, Math.max(canvas.width, canvas.height) * 0.09, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            function checkProgress() {
+                strokeCount++;
+                if (strokeCount % 6 !== 0) return;
+                const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+                let transparent = 0, total = 0;
+                for (let i = 3; i < data.length; i += 32) {
+                    total++;
+                    if (data[i] === 0) transparent++;
+                }
+                if (transparent / total > 0.55) revealFully();
+            }
+
+            function revealFully() {
+                canvas.classList.add('scratch-cleared');
+                if (hint) hint.textContent = '🌸 Contoh gambarnya udah keliatan!';
+                setTimeout(() => { canvas.style.display = 'none'; }, 500);
+                canvas.removeEventListener('pointerdown', onDown);
+                canvas.removeEventListener('pointermove', onMove);
+            }
+
+            function onDown(e) { isDrawing = true; const p = getPos(e); scratchAt(p.x, p.y); }
+            function onMove(e) {
+                if (!isDrawing) return;
+                e.preventDefault();
+                const p = getPos(e);
+                scratchAt(p.x, p.y);
+                checkProgress();
+            }
+            function onUp() { isDrawing = false; }
+
+            canvas.addEventListener('pointerdown', onDown);
+            canvas.addEventListener('pointermove', onMove);
+            window.addEventListener('pointerup', onUp);
+        }
+
+        if (img.complete) setup(); else img.addEventListener('load', setup);
+    }
+
+    window.initPuzzleScratchCard = initScratchCard;
+})();
+
+/* =========================================
+   KARTU UCAPAN — klik buat buka/tutup
+========================================= */
+(function () {
+    const card = document.getElementById('greeting-card');
+    if (!card) return;
+
+    card.addEventListener('click', () => {
+        card.classList.toggle('is-open');
+    });
+})();
+
+document.addEventListener('DOMContentLoaded', function() {
+
+    // --- Initialize AOS (Animate on Scroll) ---
+    AOS.init({
+        duration: 800,
+        once: true,
+    });
+
+    // --- Initialize LightGallery ---
+    lightGallery(document.getElementById('lightgallery'), {
+        speed: 500,
+        download: false
+    });
+
+    // --- Hall of Fame Scroller ---
+    const scroller = document.getElementById('hall-of-fame-scroller');
+    const scrollLeftBtn = document.getElementById('scroll-left-btn');
+    const scrollRightBtn = document.getElementById('scroll-right-btn');
+    if (scroller && scrollLeftBtn && scrollRightBtn) {
+        const card = scroller.querySelector('.snap-center');
+        const cardWidth = card.offsetWidth + parseInt(getComputedStyle(card.parentElement).gap);
+
+        scrollRightBtn.addEventListener('click', () => {
+            scroller.scrollBy({ left: cardWidth, behavior: 'smooth' });
+        });
+        scrollLeftBtn.addEventListener('click', () => {
+            scroller.scrollBy({ left: -cardWidth, behavior: 'smooth' });
+        });
+    }
+
+    // --- Video Uploader ---
+    const videoUploadInput = document.getElementById('video-upload');
+    const videoPlayer = document.getElementById('video-player');
+    const videoUploadLabel = document.getElementById('video-upload-label');
+
+    if(videoUploadInput && videoPlayer && videoUploadLabel) {
+        videoUploadLabel.addEventListener('click', () => {
+            videoUploadInput.click();
+        });
+
+        videoUploadInput.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (file) {
+                const videoURL = URL.createObjectURL(file);
+                videoPlayer.src = videoURL;
+                videoPlayer.classList.remove('hidden');
+                videoUploadLabel.classList.add('hidden');
+                videoPlayer.play();
+            }
+        });
+    }
+
+    // --- Background Music ---
+    const bgMusic = document.getElementById('bg-music');
+    const musicToggleBtn = document.getElementById('music-toggle-btn');
+    const musicIconOn = document.getElementById('music-icon-on');
+    const musicIconOff = document.getElementById('music-icon-off');
+
+    if (bgMusic && musicToggleBtn) {
+        bgMusic.volume = 0.6;
+
+        function showPlayingIcon() {
+            musicIconOn.classList.remove('hidden');
+            musicIconOff.classList.add('hidden');
+        }
+        function showPausedIcon() {
+            musicIconOn.classList.add('hidden');
+            musicIconOff.classList.remove('hidden');
+        }
+
+        let musicReady = false;
+        let userInteracted = false;
+
+        function isAudioReady() {
+            return bgMusic.readyState >= 3;
+        }
+
+        function attemptPlayIfReady() {
+            if (!musicReady || !userInteracted) return;
+            bgMusic.play().then(showPlayingIcon).catch(() => {
+                showPausedIcon();
+            });
+        }
+
+        function markMusicReady() {
+            if (musicReady) return;
+            musicReady = true;
+            attemptPlayIfReady();
+        }
+
+        if (isAudioReady()) {
+            markMusicReady();
+        } else {
+            bgMusic.addEventListener('canplaythrough', markMusicReady, { once: true });
+            bgMusic.addEventListener('loadeddata', () => {
+                if (isAudioReady()) markMusicReady();
+            });
+        }
+
+        function tryPlayMusic() {
+            const interactionEvents = ['click', 'touchstart', 'pointerdown', 'scroll', 'keydown'];
+
+            const startOnInteraction = () => {
+                userInteracted = true;
+                interactionEvents.forEach(evt =>
+                    document.removeEventListener(evt, startOnInteraction)
+                );
+
+                if (musicReady) {
+                    attemptPlayIfReady();
+                } else {
+                    showPausedIcon();
+                }
+            };
+
+            interactionEvents.forEach(evt =>
+                document.addEventListener(evt, startOnInteraction, { once: true, passive: true })
+            );
+        }
+
+        tryPlayMusic();
+
+        musicToggleBtn.addEventListener('click', () => {
+            if (bgMusic.paused) {
+                bgMusic.play().then(showPlayingIcon).catch(() => {});
+            } else {
+                bgMusic.pause();
+                showPausedIcon();
+            }
+        });
+    }
+
+    // --- Sakura Petal Animation ---
+    const canvas = document.getElementById('sakura-canvas');
+    if (canvas) {
+        const ctx = canvas.getContext('2d');
+        let petals = [];
+        const numPetals = 50;
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        function Petal() {
+            this.x = Math.random() * canvas.width;
+            this.y = Math.random() * canvas.height * 2 - canvas.height;
+            this.w = 25 + Math.random() * 15;
+            this.h = 20 + Math.random() * 10;
+            this.opacity = this.w / 40;
+            this.flip = Math.random();
+            this.xSpeed = 1.5 + Math.random() * 2;
+            this.ySpeed = 1 + Math.random() * 1;
+            this.flipSpeed = Math.random() * 0.03;
+        }
+
+        Petal.prototype.draw = function() {
+            if (this.y > canvas.height || this.x > canvas.width) {
+                this.x = -this.w;
+                this.y = Math.random() * canvas.height * 2 - canvas.height;
+                this.xSpeed = 1.5 + Math.random() * 2;
+                this.ySpeed = 1 + Math.random() * 1;
+                this.flip = Math.random();
+            }
+            ctx.globalAlpha = this.opacity;
+            ctx.beginPath();
+            ctx.moveTo(this.x, this.y);
+            ctx.bezierCurveTo(this.x + this.w / 2, this.y - this.h / 2, this.x + this.w, this.y, this.x + this.w / 2, this.y + this.h / 2);
+            ctx.bezierCurveTo(this.x, this.y + this.h, this.x - this.w / 2, this.y, this.x, this.y);
+            ctx.closePath();
+            ctx.fillStyle = '#FFB7C5';
+            ctx.fill();
+        }
+
+        Petal.prototype.update = function() {
+            this.x += this.xSpeed;
+            this.y += this.ySpeed;
+            this.flip += this.flipSpeed;
+            this.draw();
+        }
+
+        function createPetals() {
+            petals = [];
+            for (let i = 0; i < numPetals; i++) {
+                petals.push(new Petal());
+            }
+        }
+
+        function animate() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            petals.forEach(petal => {
+                petal.update();
+            });
+            requestAnimationFrame(animate);
+        }
+
+        createPetals();
+        animate();
+    }
+});
